@@ -34,3 +34,15 @@ class BillIn(BaseModel):
 class BillDecision(BaseModel):
     decision: Literal['approved', 'returned']
     note: Evidence
+
+
+class CreditIn(BaseModel):
+    site: Site
+    credit_number: Annotated[str, StringConstraints(strip_whitespace=True, min_length=4, max_length=80)]
+    origin_bill_id: int = Field(gt=0)
+    amount: Subtotal = Field(gt=0)
+    evidence: Evidence
+
+
+class CreditAllocationIn(BaseModel):
+    amount: Decimal = Field(ge=0, max_digits=20, decimal_places=2)

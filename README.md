@@ -16,7 +16,7 @@
 - 月报发布：生成草稿，检查复核单关闭与口径兼容后由经理签发。
 - 抄表更正单：保留原始抄表，另一人复核通过后以更正值重算并重新开启受影响的差异单。
 - 站点能耗预算与结算：按月报内的站点配置电量预算和电价，签发时冻结电量、成本及偏差。
-- 供应商账单核验：对照当月站点价表与对账电量，核验供电账单的电量、计费需量及未税小计。退回和重报均保留版本与证据。
+- 供应商账单核验：对照当月站点价表与对账电量，核验供电账单的电量、计费需量及未税小计。退回和重报均保留版本与证据。供应商贷项单按原冻结账单登记，同站同号只记一笔，余额分摊到后续月份的同站账单并在签发时抵扣。
 
 主流程是 `抄表 → 指标计算 → 差异复核 → 月报发布`。单位或周期不兼容时拒绝计算/发布，复核单未关闭时拒绝归档。
 
@@ -59,9 +59,21 @@ docker compose exec -T backend python -m scripts.seed_demo --with-billing
 
 账单电量允许与对账值相差 1 kWh，需量计费站点的计费需量须一致，金额差须在价表容差内。任何一项超差都须退回核实。价表版本更新或对账电量变化后，原审批不能用于签发。待审旧版须先退回，曾获批的旧版可直接重报。价表和账单由同一月度事务锁保护。首张价表启用该月账单核验，之后必须覆盖月报中的全部站点，签发时仅冻结各站点通过复核的最新版。十月抄表更正和预算演示也由 `--with-billing` 初始化。
 
+## 供应商贷项单
+
+供应商贷项单常在月报签发后才到，因此贷项单不修改已签发月报，而是在「供应商账单核验」中按原冻结账单入账，再抵扣后续月份的同站账单。
+
+1. 一月月报已签发后，在「供应商账单核验」选 `2027-02`（或任意草稿月报），在北仑站点点击「登记贷项单」。原冻结账单下拉框只列出已签发月报中冻结的账单，种子数据包含十二月的 `BL-2612-011` 和贷项单 `CR-2612-03`（600 元）。
+2. 贷项单按 `站点 + 贷项单号` 唯一：同站同号只记一笔，重复登记返回 409。站点必须与原冻结账单一致。
+3. 在目标月报的贷项单卡片上「分摊到本月」，填写不超过可用余额的分摊额（填 0 取消分摊）。一张贷项单可分摊到多个后续月份的草稿月报，但各月分摊不得超过当前可用余额。
+4. 经理签发月报时按分摊额抵扣该站本月账单未税小计，并按贷项单编号先进先出扣减余额；每笔抵扣记录原冻结账单、抵扣本月账单、抵扣额以及抵扣前后的余额。分摊额超过本月账单未税小计、或可用余额不足时，签发被拒绝，月报保持草稿且不扣减任何余额；重试不会重复扣减。
+5. 签发后可在贷项单卡片查看每笔抵扣的原账单、抵扣额与当时余额；已签发月报的电量、成本和差异率保留原值。
+
+贷项单核对规则位于 `backend/src/services/credits.py` 与 `backend/src/services/credit_math.py`，分摊按贷项单编号从旧到新依次扣减，整张账单必须被全额覆盖才执行抵扣。
+
 ## 技术结构
 
-五服务为 `frontend`、`backend`、`worker`、`db`、`redis`。后端使用 FastAPI + PyMySQL，数据库使用 MySQL 8.0，前端为原生 HTML/CSS/JavaScript。JWT、审计日志、请求限流分别在 `backend/src/security.py`、`backend/src/services/audit.py` 和 `backend/src/middlewares/__init__.py` 中实现。共享枚举状态在后端路由和前端 `statusTag` 中各自定义。更正原因和决定状态见 `backend/src/closing_schemas.py`、`backend/src/db.py` 与 `frontend/closing.js`。`services/corrections.py` 和 `services/budgets.py` 承载更正与结算规则，新增业务与签发使用同一核算周期事务锁。账单决定在 `backend/src/billing_schemas.py` 和 `frontend/billing.js` 定义，核验差异枚举见 `backend/src/services/bill_math.py` 与 `frontend/billing.js`。为隔离验收环境可用 `COLDSTORE_DB_VOLUME`、`COLDSTORE_REDIS_VOLUME`、`COLDSTORE_ARTIFACT_VOLUME` 指定卷名。
+五服务为 `frontend`、`backend`、`worker`、`db`、`redis`。后端使用 FastAPI + PyMySQL，数据库使用 MySQL 8.0，前端为原生 HTML/CSS/JavaScript。JWT、审计日志、请求限流分别在 `backend/src/security.py`、`backend/src/services/audit.py` 和 `backend/src/middlewares/__init__.py` 中实现。共享枚举状态在后端路由和前端 `statusTag` 中各自定义。更正原因和决定状态见 `backend/src/closing_schemas.py`、`backend/src/db.py` 与 `frontend/closing.js`。`services/corrections.py` 和 `services/budgets.py` 承载更正与结算规则，新增业务与签发使用同一核算周期事务锁。账单决定在 `backend/src/billing_schemas.py` 和 `frontend/billing.js` 定义，核验差异枚举见 `backend/src/services/bill_math.py` 与 `frontend/billing.js`。贷项单与抵扣记录存于 `supplier_credit_notes`、`credit_allocations`、`credit_applications` 三张表，规则在 `backend/src/services/credits.py`，签发时与冻结账单、预算共用同一核算周期事务锁。为隔离验收环境可用 `COLDSTORE_DB_VOLUME`、`COLDSTORE_REDIS_VOLUME`、`COLDSTORE_ARTIFACT_VOLUME` 指定卷名。
 
 ## 算法口径
 

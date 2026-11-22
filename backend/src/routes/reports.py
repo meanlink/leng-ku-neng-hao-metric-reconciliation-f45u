@@ -8,6 +8,7 @@ from ..services.audit import record_action
 from ..services.bill_close import freeze_bills
 from ..services.budgets import aggregate_totals, freeze_budgets
 from ..services.corrections import has_pending_corrections
+from ..services.credits import apply_credits
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -80,6 +81,7 @@ def publish(payload: PublishIn, user=Depends(require_roles("manager"))):
             raise HTTPException(409, detail="全部差异复核单关闭后才可归档发布")
         freeze_budgets(cur, report)
         freeze_bills(cur, report)
+        apply_credits(cur, report, user['sub'])
         totals = aggregate_totals(cur, payload.period, payload.contract_id)
         cur.execute("""UPDATE monthly_reports SET actual_kwh=%s,expected_kwh=%s,difference_rate=%s,case_count=%s,
                        status='published',published_by=%s,published_at=NOW() WHERE id=%s""",

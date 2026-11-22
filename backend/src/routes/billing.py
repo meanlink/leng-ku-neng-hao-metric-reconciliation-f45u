@@ -2,12 +2,13 @@ from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends
 
-from ..billing_schemas import BillDecision, BillIn, TariffIn
+from ..billing_schemas import BillDecision, BillIn, CreditAllocationIn, CreditIn, TariffIn
 from ..db import db_cursor, lock_period
 from ..security import current_user, require_roles
 from ..services.bill_close import billing_sheet
 from ..services.bill_review import review_bill, submit_bill
 from ..services.budgets import report_by_id, report_period
+from ..services.credits import register_credit, set_allocation
 from ..services.tariffs import add_tariff
 
 router = APIRouter(prefix='/utility-billing', tags=['供应商账单核验'])
@@ -44,3 +45,18 @@ def decide_invoice(report_id: int, bill_id: int, payload: BillDecision,
                    user=Depends(require_roles('reviewer', 'manager'))):
     with billing_transaction(report_id) as (cur, report):
         return review_bill(cur, report, bill_id, payload, user['sub'])
+
+
+@router.post('/{report_id}/credits', status_code=201)
+def file_credit(report_id: int, payload: CreditIn, user=Depends(require_roles('analyst', 'manager'))):
+    with billing_transaction(report_id) as (cur, report):
+        return register_credit(cur, report, payload, user['sub'])
+
+
+@router.post('/{report_id}/credits/{credit_id}/allocation')
+def allocate_credit(report_id: int, credit_id: int, payload: CreditAllocationIn,
+                    user=Depends(require_roles('analyst', 'manager'))):
+    with billing_transaction(report_id) as (cur, report):
+        allocation = set_allocation(cur, report, credit_id, payload.amount, user['sub'])
+        return {'credit_id': credit_id, 'report_id': report_id,
+                'amount': allocation['amount'] if allocation else None}

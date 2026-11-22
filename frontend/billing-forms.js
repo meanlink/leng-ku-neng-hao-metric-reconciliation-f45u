@@ -42,5 +42,27 @@ export function billingForms({ api, esc, openForm }) {
         ${evidence('note', '账单复核意见')}`, label,
         fields => post(`${root(sheet)}/invoices/${bill.id}/decision`, {decision, ...fields}), '复核意见已记录');
     },
+    credit(sheet, row) {
+      const bills = row.credit.origin_bills;
+      const options = bills.map(bill => `<option value="${bill.id}">${esc(bill.origin_period)} · ${esc(bill.invoice_number)} · 第 ${bill.revision} 版 · 未税 ${Number(bill.invoice_subtotal).toFixed(2)} 元</option>`).join('');
+      openForm('登记供应商贷项单', `${context(sheet, row)}
+        <div class="kpi-label full">贷项单按原冻结账单入账，已签发月报保留原值。同一站点同号贷项单只记一笔，余额可分摊到后续月份的同站账单。</div>
+        <label class="field full">原冻结账单<select name="origin_bill_id" required>${options}</select></label>
+        ${text('credit_number', '贷项单号', '', 80)}
+        ${number('amount', '贷项金额（元）', '', '0.01', '0.01')}
+        ${evidence('evidence', '贷项单与供应商确认依据')}`,
+        '登记贷项单', fields => post(`${root(sheet)}/credits`, {site: row.site, ...fields}), '贷项单已登记');
+    },
+    allocate(sheet, row, credit) {
+      const bill = row.history[0];
+      const billNote = bill
+        ? `本月账单 ${esc(bill.invoice_number)} 未税小计 ${Number(bill.invoice_subtotal).toFixed(2)} 元`
+        : '本月账单尚未登记';
+      openForm('分摊贷项金额', `${context(sheet, row)}
+        <div class="kpi-label full">贷项单 ${esc(credit.credit_number)} · 可用余额 ${Number(credit.remaining_amount).toFixed(2)} 元 · ${billNote}</div>
+        <div class="kpi-label full">签发时按分摊额抵扣本月同站账单，分摊不得超过账单未税小计。余额不足则月报保持草稿，不扣减余额。</div>
+        ${number('amount', '本月分摊金额（元，填 0 取消分摊）', credit.allocated_amount ?? '', '0.01', '0')}`,
+        '保存分摊', fields => post(`${root(sheet)}/credits/${credit.id}/allocation`, fields), '贷项分摊已保存');
+    },
   };
 }

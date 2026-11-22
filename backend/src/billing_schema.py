@@ -34,4 +34,41 @@ BILLING_SCHEMA = [
       CHECK (revision > 0 AND invoiced_kwh >= 0 AND observed_peak_kw >= 0
              AND invoiced_demand_kw >= 0 AND invoice_subtotal >= 0 AND reconciled_kwh >= 0)
     ) ENGINE=InnoDB""",
+    """CREATE TABLE IF NOT EXISTS supplier_credit_notes (
+      id INT PRIMARY KEY AUTO_INCREMENT, site VARCHAR(120) NOT NULL, credit_number VARCHAR(80) NOT NULL,
+      origin_report_id INT NOT NULL, origin_bill_id INT NOT NULL,
+      amount DECIMAL(20,2) NOT NULL, remaining_amount DECIMAL(20,2) NOT NULL,
+      evidence VARCHAR(500) NOT NULL, registered_by INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_credit_number(site, credit_number),
+      KEY ix_credit_site(site, remaining_amount),
+      FOREIGN KEY(origin_report_id) REFERENCES monthly_reports(id),
+      FOREIGN KEY(origin_bill_id) REFERENCES utility_bill_revisions(id),
+      FOREIGN KEY(registered_by) REFERENCES users(id),
+      CHECK (amount > 0 AND remaining_amount >= 0 AND remaining_amount <= amount)
+    ) ENGINE=InnoDB""",
+    """CREATE TABLE IF NOT EXISTS credit_allocations (
+      id INT PRIMARY KEY AUTO_INCREMENT, credit_id INT NOT NULL, report_id INT NOT NULL,
+      site VARCHAR(120) NOT NULL, amount DECIMAL(20,2) NOT NULL, created_by INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_credit_allocation(credit_id, report_id),
+      KEY ix_credit_allocation_report(report_id),
+      FOREIGN KEY(credit_id) REFERENCES supplier_credit_notes(id),
+      FOREIGN KEY(report_id) REFERENCES monthly_reports(id),
+      FOREIGN KEY(created_by) REFERENCES users(id),
+      CHECK (amount > 0)
+    ) ENGINE=InnoDB""",
+    """CREATE TABLE IF NOT EXISTS credit_applications (
+      id INT PRIMARY KEY AUTO_INCREMENT, credit_id INT NOT NULL, report_id INT NOT NULL,
+      site VARCHAR(120) NOT NULL, bill_id INT NOT NULL, amount DECIMAL(20,2) NOT NULL,
+      balance_before DECIMAL(20,2) NOT NULL, balance_after DECIMAL(20,2) NOT NULL,
+      applied_by INT NOT NULL, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_credit_report(credit_id, report_id),
+      KEY ix_credit_application_report(report_id),
+      FOREIGN KEY(credit_id) REFERENCES supplier_credit_notes(id),
+      FOREIGN KEY(report_id) REFERENCES monthly_reports(id),
+      FOREIGN KEY(bill_id) REFERENCES utility_bill_revisions(id),
+      FOREIGN KEY(applied_by) REFERENCES users(id),
+      CHECK (amount > 0 AND balance_before >= amount AND balance_after = balance_before - amount)
+    ) ENGINE=InnoDB""",
 ]

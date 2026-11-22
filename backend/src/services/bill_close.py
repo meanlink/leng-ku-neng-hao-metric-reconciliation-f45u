@@ -4,14 +4,17 @@ from .bill_math import explain_exceptions
 from .bill_review import stale
 from .bill_store import bill_history
 from .budgets import site_actuals
+from .credits import site_credit_view
 from .tariffs import latest_tariffs
 
 
 def billing_sheet(cur, report):
     tariffs = latest_tariffs(cur, report['id'])
     histories = bill_history(cur, report['id'])
+    actuals = site_actuals(cur, report)
+    credits = site_credit_view(cur, report, list(actuals))
     sites = []
-    for site, usage in site_actuals(cur, report).items():
+    for site, usage in actuals.items():
         tariff = tariffs.get(site)
         history = [{**row, **explain_exceptions(row)} for row in histories.get(site, [])]
         latest = history[0] if history else None
@@ -29,7 +32,8 @@ def billing_sheet(cur, report):
             readiness = 'exception'
         else:
             readiness = latest['status']
-        sites.append({**usage, 'tariff': tariff, 'history': history, 'readiness': readiness})
+        sites.append({**usage, 'tariff': tariff, 'history': history, 'readiness': readiness,
+                      'credit': credits.get(site, {'credits': [], 'origin_bills': [], 'applications': []})})
     return {'report_id': report['id'], 'period': report['period'], 'status': report['status'],
             'enabled': bool(tariffs), 'sites': sites}
 
